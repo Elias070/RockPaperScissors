@@ -1,0 +1,22 @@
+{
+  "name": "rockpaperscissors",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Elias070/RockPaperScissors.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Elias070/RockPaperScissors/issues"
+  },
+  "homepage": "https://github.com/Elias070/RockPaperScissors#readme",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#D3D3D3"/>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.5.0/p5.min.js" integrity="sha512-WJXVjqeINVpi5XXJ2jn0BSCfp0y80IKrYh731gLRnkAS9TKc5KNt/OfLtu+fCueqdWniouJ1ubM+VI/hbo7POQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://unpkg.com/ccapture.js@1.1.0/build/CCapture.all.min.js"></script>
+  <script src="/NoSleep.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+  <script>
+    var noSleep = new NoSleep();
+    document.addEventListener('click', function enableNoSleep() {
+      document.removeEventListener('click', enableNoSleep, false);
+      noSleep.enable();
+    }, false);
+    // Based on: https://openprocessing.org/sketch/1174676
+
+    let time;
+    let balls = []
+    let boundary = [];
+    let obstacles = [];
+
+    const w = 480;
+    const h = Math.ceil(w/9*16);
+
+    const timestamp = getDate()
+    const fps = 60;
+    const startDelay = 1;
+    const vertical_padding = 50;
+    const horizontal_padding = 30;
+
+    const minSeconds = 70;
+    const minFrames = minSeconds * fps;
+
+    const speed = 40;
+    const speedCorrection = 25;
+    const radius = 22;
+    const ball_amount = 12;
+
+    const choices = ['🪨', '✂️', '📜']
+
+    function setup() { 
+      createCanvas(w, h);
+      angleMode(DEGREES);
+      ellipseMode(RADIUS);
+      
+
+      createObstacles()
+      createBalls()
+      createBoundaries()
+      time = millis();
+    }
+
+    let timeoutIsSet = false;
+    function draw() {
+      deltaT = millis() - time;
+      time = millis();
+
+      if (gameFinished()) {
+        drawWinner()
+
+        if (!timeoutIsSet) {
+          timeoutIsSet = true
+          setTimeout(()=>{ // Reset after X seconds
+            return location.reload();
+          }, 3000)
+        }
+        return
+      }
+
+      // Initial delay
+      if (frameCount > fps * startDelay){
+        drawBattleground()
+        drawObstacles()
+        drawBalls() 
+      } else {
+        if (frameCount === 1) {
+          drawBattleground()
+          drawBalls() 
+        }
+      }
+            
+    }
+
+
+    // Draw
+    function drawObstacles() {
+      push();
+      fill('dimgray');
+      for (let obstacle of obstacles) {
+        circle(obstacle.x, obstacle.y, radius);
+
+        textSize(radius * 2)
+        textAlign(CENTER, CENTER)
+        text('⚽️', obstacle.x, obstacle.y);
+      }
+      pop();
+    }
+
+    function twoLeft() {
+      const balltypes = []
+      for (let i = 0; i < ball_amount; i++) {
+        if(!balltypes.includes(balls[i].type)) balltypes.push(balls[i].type)
+      }
+      return balltypes.length <= 2
+    }
+
+    function drawBattleground() {
+      background('lightgrey');
+      push();
+      fill('lightgrey');
+      strokeWeight(0);
+      beginShape();
+      for (let v of boundary) {
+        vertex(v.x, v.y);
+      }
+      endShape(CLOSE);
+      pop();
+      push();
+      fill('dimgray');
+      for (let obstacle of obstacles) {
+        circle(obstacle.x, obstacle.y, radius);
+      }
+      pop();
+    }
+
+    function drawBalls() {
+      for (let i = 0; i < balls.length; i++) {
+        let ball = balls[i];
+        balls[i].index = i;
+        // update position
+        ball.pos = createVector(
+          min(max(0, ball.pos.x + ball.vel.x * (deltaT / 1000)), width),
+          min(max(0, ball.pos.y + ball.vel.y * (deltaT / 1000)), height)
+        );
+
+        // check for collisions
+        for (let i = 0; i < boundary.length; i++) {
+          checkCollision(ball, boundary[i], boundary[(i + 1) % boundary.length]);
+        }
+
+        // check for collisions with obstacles, if any
+        for (let obstacle of obstacles) {
+          let dirVector = p5.Vector.sub(ball.pos, obstacle).normalize().mult(radius);
+          let p1 = p5.Vector.add(obstacle, dirVector);
+          checkCollision(ball, p1, p5.Vector.add(p1, p5.Vector.rotate(dirVector, -90)));
+        }
+
+        // Check for collisions with other balls
+        for (let j = 0; j < i; j++) {
+          let other = balls[j];
+
+          let distance = dist(ball.pos.x, ball.pos.y, other.pos.x, other.pos.y);
+          if (distance / 2 < radius) {
+            fightBattle(ball, other)
+            handleCollision(ball, other, distance)
+          }
+        }
+      }
+
+      // Only draw balls after all position updates are complete
+      for (let ball of balls) {
+        textSize(radius * 2)
+        textAlign(CENTER, CENTER)
+        text(ball.type, ball.pos.x, ball.pos.y)
+        // text(ball.index, ball.pos.x, ball.pos.y)
+      }
+    }
+
+    function handleCollision(ball, other, distance) {
+      push();
+      let midPoint = p5.Vector.add(ball.pos, other.pos).div(2);
+      let boundaryVector = p5.Vector.sub(other.pos, ball.pos).rotate(-90);
+
+      let v1Parallel = project(ball.vel, boundaryVector);
+      let v2Parallel = project(other.vel, boundaryVector);
+
+      let v1Perpendicular = p5.Vector.sub(ball.vel, v1Parallel);
+      let v2Perpendicular = p5.Vector.sub(other.vel, v2Parallel);
+
+      ball.vel = p5.Vector.add(v1Parallel, v2Perpendicular);
+      other.vel = p5.Vector.add(v2Parallel, v1Perpendicular);
+
+      let bounce = min(radius, 2 * radius - distance);
+      ball.pos.add(p5.Vector.rotate(boundaryVector, -90).normalize().mult(bounce));
+      other.pos.add(p5.Vector.rotate(boundaryVector, 90).normalize().mult(bounce));
+
+      pop();
+    }
+
+    function fightBattle(ball, other) {
+      // Based on: https://openprocessing.org/sketch/1174676
+      if (ball.type === '📜' && other.type === '🪨') {other.type = '📜';}
+      if (other.type === '📜' && ball.type === '🪨') {ball.type = '📜';}
+      if (ball.type === '🪨' && other.type === '✂️') {other.type = '🪨';}
+      if (other.type === '🪨' && ball.type === '✂️') {ball.type = '🪨';}
+      if (ball.type === '✂️' && other.type === '📜') {other.type = '✂️';}
+      if (other.type === '✂️' && ball.type === '📜') {ball.type = '✂️';}
+    }
+
+    function drawWinner() {
+      background('lightgrey');
+      text(balls[0].type, width/2, height/2)
+      textSize(radius * 8)
+      textAlign(CENTER, CENTER)
+    }
+
+
+    // Setup
+    function createObstacles() {
+      // obstacles.push(createVector(width / 2, height / 2));
+    }
+
+    function createBalls() {
+      let ind = 0
+      for (let i = 0; i < ball_amount; i++) {
+        if (ind === choices.length) ind = 0
+        balls.push({
+          pos: createVector(width * random(0.00, 0.90), height * random(0.00, 0.90)),
+          vel: createVector(random(speed-speedCorrection, speed+speedCorrection), 0).rotate(random(0, 360)),
+          type: choices[ind]
+        });
+        // balls.push({
+        //   pos: createVector(width * random(0.00, 0.90), height * random(0.00, 0.90)),
+        //   vel: createVector(random(20, 100), 0).rotate(random(0, 360)),
+        //   type: choices[ind]
+        // });
+        ind++
+      }
+    }
+
+    function createBoundaries() {
+      boundary.push(createVector(horizontal_padding, vertical_padding));
+      boundary.push(createVector(width - horizontal_padding, vertical_padding));
+      boundary.push(createVector(width - horizontal_padding, height - vertical_padding));
+      boundary.push(createVector(horizontal_padding, height - vertical_padding));
+    }
+
+    function getDate() {
+      Date.prototype.YYYYMMDDHHMMSSMS = function () {
+        function pad(number, length) {
+          var str = '' + number;
+          while (str.length < length) {
+              str = '0' + str;
+          }
+          return str;
+        }
+        
+        var yyyy = this.getFullYear().toString();
+        var MM = pad(this.getMonth() + 1,2);
+        var dd = pad(this.getDate(), 2);
+        var hh = pad(this.getHours(), 2);
+        var mm = pad(this.getMinutes(), 2)
+        var ss = pad(this.getSeconds(), 2)
+        var ms = pad(this.getMilliseconds(), 2)
+      
+        return yyyy + MM + dd+  hh + mm + ss + ms;
+      };
+      d = new Date();
+      return d.YYYYMMDDHHMMSSMS();
+    }
+
+
+
+
+    function drawLine(origin, offset) {
+      line(origin.x, origin.y, origin.x + offset.x, origin.y + offset.y);
+    }
+
+    // Handles collision with a plane given two points on the plane.
+    // It is assumed that given a vector from p1 to p2, roating that vector
+    // clockwise 90 degrees will give a vector pointing to the in-bounds side of the
+    // plane (i.e. a "normal").
+    function checkCollision(ball, p1, p2) {
+      let boundaryVector = p5.Vector.sub(p2, p1);
+      let objVector = p5.Vector.sub(ball.pos, p1);
+      let angle = boundaryVector.angleBetween(objVector);
+      let distance = objVector.mag() * sin(angle);
+
+      if (distance <= radius) {
+        // Collision
+        let vParallel = project(ball.vel, boundaryVector);
+        let vPerpendicular = p5.Vector.sub(ball.vel, vParallel);
+
+        ball.vel = p5.Vector.add(vParallel, p5.Vector.mult(vPerpendicular, -1));
+
+        let bounce = min(radius, (radius - distance) * 2);
+        // If the ball has crossed over beyond the plane we want to offset it to be on
+        // the in-bounds side of the plane.
+        let bounceOffset = p5.Vector.rotate(boundaryVector, 90).normalize().mult(bounce);
+        ball.pos.add(bounceOffset);
+      }
+    }
+
+    // p5.Vector helpers
+    function project(vect1, vect2) {
+      vect2 = p5.Vector.normalize(vect2);
+      return p5.Vector.mult(vect2, p5.Vector.dot(vect1, vect2));
+    }
+
+    function reject(vect1, vect2) {
+      return p5.Vector.sub(vect1, project(vect1, vect2));
+    }
+
+
+    function download_script() {
+      const bash_shript = `
+    mkdir ../archive/${timestamp};
+    mkdir ../archive/${timestamp}/export;
+    mv ${timestamp}.tar ../archive/${timestamp}/${timestamp}.tar;
+    mv ${timestamp}.command ../archive/${timestamp}/${timestamp}.command;
+    cd ../archive/${timestamp};
+    tar -xvf ${timestamp}.tar -C export;
+    ffmpeg -r ${fps} -f image2 -s ${w}x${h} -i "export/%07d.png" -vcodec libx264 -crf 17 -pix_fmt yuv420p ${timestamp}.mp4;
+    cp ${timestamp}.mp4 ../../output;
+    cd ../../queue;
+    `
+      var element = document.createElement('a');
+      element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(bash_shript));
+      element.setAttribute('download', timestamp+'.command');
+      element.style.display = 'none';
+      document.body.appendChild(element);
+      element.click();
+      document.body.removeChild(element);
+    }
+
+    function download_blob(filename, blob) {
+      var element = document.createElement('a');
+      
+      var blobUrl = URL.createObjectURL(blob);
+      element.setAttribute('href', blobUrl);
+      element.setAttribute('download', filename);
+      element.style.display = 'none';
+      document.body.appendChild(element);
+      element.click();
+      document.body.removeChild(element);
+    }
+
+    function gameFinished() {
+      let completed = true
+      let prevType = balls[0].type
+      for (let ball of balls) {
+        if (ball.type !== prevType) {
+          completed = false
+          return
+        }
+        prevType = ball.type
+      }
+      return completed
+    }
+
+  </script>
+  <title>RPS</title>
+</head>
+<body>
+
+</body>
+</html>
+
